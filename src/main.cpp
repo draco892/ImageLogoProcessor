@@ -68,7 +68,7 @@ std::string to_lower(std::string value) {
 
 void validate_absolute(const fs::path& path, const std::string& field_name) {
     if (!path.is_absolute()) {
-        throw std::runtime_error(field_name + " deve essere un path assoluto: " + path.string());
+        throw std::runtime_error(field_name + " must be an absolute path: " + path.string());
     }
 }
 
@@ -79,7 +79,7 @@ std::string quote(const fs::path& value) {
 json read_json_file(const fs::path& path) {
     std::ifstream in(path);
     if (!in) {
-        throw std::runtime_error("Impossibile aprire il file di configurazione: " + path.string());
+        throw std::runtime_error("Unable to open configuration file: " + path.string());
     }
     json j;
     in >> j;
@@ -111,19 +111,19 @@ AppConfig load_config(const fs::path& config_path) {
     validate_absolute(cfg.output.directory, "output.directory");
 
     if (cfg.input.extensions.empty()) {
-        throw std::runtime_error("input.extensions non può essere vuoto");
+        throw std::runtime_error("input.extensions cannot be empty");
     }
     for (auto& ext : cfg.input.extensions) {
         ext = to_lower(ext);
         if (ext.empty() || ext.front() != '.') {
-            throw std::runtime_error("Ogni estensione deve iniziare con '.' esempio: .jpeg");
+            throw std::runtime_error("Each extension must start with '.', for example: .jpeg");
         }
     }
     if (cfg.output.extension.empty() || cfg.output.extension.front() != '.') {
-        throw std::runtime_error("output.extension deve iniziare con '.' esempio: .jpeg");
+        throw std::runtime_error("output.extension must start with '.', for example: .jpeg");
     }
     if (cfg.processing.logo_diagonal_divisor <= 0.0) {
-        throw std::runtime_error("processing.logo_diagonal_divisor deve essere > 0");
+        throw std::runtime_error("processing.logo_diagonal_divisor must be > 0");
     }
     if (cfg.processing.max_parallel_jobs == 0) {
         cfg.processing.max_parallel_jobs = 1;
@@ -139,7 +139,7 @@ std::string run_command_capture(const std::string& command) {
     FILE* pipe = popen(command.c_str(), "r");
 #endif
     if (!pipe) {
-        throw std::runtime_error("Impossibile eseguire il comando: " + command);
+        throw std::runtime_error("Unable to execute command: " + command);
     }
 
     std::string result;
@@ -154,7 +154,7 @@ std::string run_command_capture(const std::string& command) {
     const int rc = pclose(pipe);
 #endif
     if (rc != 0) {
-        throw std::runtime_error("Comando fallito: " + command);
+        throw std::runtime_error("Command failed: " + command);
     }
     return result;
 }
@@ -170,7 +170,7 @@ ImageInfo get_image_info(const AppConfig& cfg, const fs::path& file) {
     ImageInfo info;
     iss >> info.width >> info.height;
     if (!iss || info.width == 0 || info.height == 0) {
-        throw std::runtime_error("Dimensioni non valide per file: " + file.string());
+        throw std::runtime_error("Invalid dimensions for file: " + file.string());
     }
     return info;
 }
@@ -234,7 +234,7 @@ void process_one(const AppConfig& cfg,
 
     const int rc = run_command(cmd);
     if (rc != 0) {
-        throw std::runtime_error("Elaborazione fallita per file: " + input_file.string());
+        throw std::runtime_error("Processing failed for file: " + input_file.string());
     }
 
     const int processed = ++done_count;
@@ -254,7 +254,7 @@ fs::path parse_config_path(int argc, char* argv[]) {
     if (argc == 3 && std::string_view(argv[1]) == "--config") {
         return fs::path(argv[2]);
     }
-    throw std::runtime_error("Uso: logo_processor /path/config.json oppure logo_processor --config /path/config.json");
+    throw std::runtime_error("Usage: logo_processor /path/config.json or logo_processor --config /path/config.json");
 }
 
 int main(int argc, char* argv[]) {
@@ -263,10 +263,10 @@ int main(int argc, char* argv[]) {
         const auto cfg = load_config(config_path);
 
         if (!fs::exists(cfg.logo_path)) {
-            throw std::runtime_error("Logo non trovato: " + cfg.logo_path.string());
+            throw std::runtime_error("Logo not found: " + cfg.logo_path.string());
         }
         if (!fs::exists(cfg.input.directory)) {
-            throw std::runtime_error("Directory input non trovata: " + cfg.input.directory.string());
+            throw std::runtime_error("Input directory not found: " + cfg.input.directory.string());
         }
 
         fs::create_directories(cfg.output.directory);
@@ -274,16 +274,16 @@ int main(int argc, char* argv[]) {
         const auto files = collect_files(cfg);
         const int total = static_cast<int>(files.size());
         if (total == 0) {
-            std::cout << "Nessun file trovato per le estensioni configurate.\n";
+            std::cout << "No files found for the configured extensions.\n";
             return 0;
         }
 
         const auto hw = std::max(1u, std::thread::hardware_concurrency());
         const auto jobs = std::max(1u, std::min({cfg.processing.max_parallel_jobs, hw, static_cast<unsigned int>(total)}));
 
-        std::cout << "Trovati " << total << " file. Job hardware disponibili: " << hw
-                  << ", job massimi configurati: " << cfg.processing.max_parallel_jobs
-                  << ", job usati: " << jobs << ".\n";
+        std::cout << "Found " << total << " files. Hardware threads available: " << hw
+                  << ", configured maximum jobs: " << cfg.processing.max_parallel_jobs
+                  << ", jobs used: " << jobs << ".\n";
 
         std::atomic<int> done_count{0};
         std::mutex io_mutex;
@@ -315,10 +315,10 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        std::cout << "\nCompletato. Elaborati " << total << " file.\n";
+        std::cout << "\nCompleted. Processed " << total << " files.\n";
         return 0;
     } catch (const std::exception& ex) {
-        std::cerr << "Errore: " << ex.what() << '\n';
+        std::cerr << "Error: " << ex.what() << '\n';
         return 1;
     }
 }
