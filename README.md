@@ -1,18 +1,18 @@
 # logo_processor_cpp23_v2
 
-Questa versione migliora il progetto precedente in due punti: usa un parser JSON reale tramite `nlohmann/json` e consente di configurare più estensioni di input nello stesso job, per esempio `.jpeg`, `.jpg` e `.png`. La pipeline resta aderente allo script originale, con calcolo della diagonale, resize del logo proporzionale, composizione via ImageMagick, naming progressivo e output su directory assoluta. [file:1]
+This version improves the previous project in two ways: it uses a proper JSON parser through `nlohmann/json` and allows multiple input extensions to be configured in the same job, for example `.jpeg`, `.jpg`, and `.png`. The processing pipeline remains faithful to the original script, including diagonal calculation, proportional logo resizing, ImageMagick-based compositing, sequential file naming, and output to an absolute directory.
 
-## Funzionalità
+## Features
 
-- Eseguibile lanciabile da qualsiasi directory.
-- Path assoluto del logo configurabile.
-- Directory assoluta di input configurabile.
-- Supporto a più estensioni configurabili tramite array JSON.
-- Directory assoluta di output configurabile.
-- Nome base file e indice iniziale configurabili.
-- Numero massimo di job paralleli configurabile.
-- Posizione e margini del logo configurabili.
-- Parser JSON robusto basato su `nlohmann/json`. [file:1]
+- Executable can be launched from any directory.
+- Configurable absolute path for the logo.
+- Configurable absolute input directory.
+- Support for multiple configurable extensions through a JSON array.
+- Configurable absolute output directory.
+- Configurable base file name and starting index.
+- Configurable maximum number of parallel jobs.
+- Configurable logo position and margins.
+- Robust JSON parser based on `nlohmann/json`.
 
 ## Build
 
@@ -21,19 +21,19 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
-## Esecuzione
+## Execution
 
 ```bash
-./build/logo_processor /percorso/assoluto/config.json
+./build/logo_processor /absolute/path/config.json
 ```
 
-oppure:
+or:
 
 ```bash
-./build/logo_processor --config /percorso/assoluto/config.json
+./build/logo_processor --config /absolute/path/config.json
 ```
 
-## Configurazione
+## Configuration
 
 ```json
 {
@@ -61,6 +61,6 @@ oppure:
 }
 ```
 
-## Compatibilità con lo script originale
+## Compatibility with the original script
 
-Lo script allegato lavorava su file `*.jpeg`, calcolava la diagonale, derivava la dimensione del logo come `diag / 12`, applicava `logo_White.png` in basso a destra con offset `+10+10` e produceva file numerati come `DRA_FUR26_0000.jpeg`. Questo progetto conserva quella logica operativa ma la rende configurabile, più robusta nel parsing e più flessibile nell'acquisizione dei file di input. [file:1]
+The attached script worked on `*.jpeg` files, calculated the diagonal, derived the logo size as `diag / 12`, applied `logo_White.png` in the bottom-right corner with offset `+10+10`, and produced numbered files such as `DRA_FUR26_0000.jpeg`. This project preserves that processing logic while making it configurable, more robust in parsing, and more flexible in input file discovery.
