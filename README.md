@@ -1,4 +1,6 @@
-# logo_processor_cpp23_v2
+# ImageLogoProcessor
+
+Automatic bash tool to apply a png logo in a group of pictures.
 
 This version improves the previous project in two ways: it uses a proper JSON parser through `nlohmann/json` and allows multiple input extensions to be configured in the same job, for example `.jpeg`, `.jpg`, and `.png`. The processing pipeline remains faithful to the original script, including diagonal calculation, proportional logo resizing, ImageMagick-based compositing, sequential file naming, and output to an absolute directory.
 
