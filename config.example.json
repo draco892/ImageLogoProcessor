@@ -1,0 +1,23 @@
+{
+  "logo_path": "/ABSOLUTE/PATH/logo_White.png",
+  "input": {
+    "directory": "/ABSOLUTE/PATH/input_images",
+    "extensions": [".jpeg", ".jpg", ".png"]
+  },
+  "output": {
+    "directory": "/ABSOLUTE/PATH/output_images",
+    "base_name": "DRA_FUR26_",
+    "start_index": 0,
+    "extension": ".jpeg"
+  },
+  "processing": {
+    "logo_diagonal_divisor": 12.0,
+    "margin_x": 10,
+    "margin_y": 10,
+    "gravity": "southeast",
+    "max_parallel_jobs": 10
+  },
+  "tools": {
+    "magick_command": "magick"
+  }
+}
