@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <fstream>
 
 #include <nlohmann/json.hpp>
 
@@ -222,7 +223,8 @@ void process_one(const AppConfig& cfg,
     const auto output_path = cfg.output.directory / output_name;
 
     const auto cmd = std::format(
-        "{} -limit thread 1 {} \\\n\\( {} -resize {}x \\\) -gravity {} -geometry +{}+{} -composite {}",
+        R"({} -limit thread 1 {} \
+        \( {} -resize {}x \) -gravity {} -geometry +{}+{} -composite {})",
         cfg.tools.magick_command,
         quote(input_file),
         quote(cfg.logo_path),
