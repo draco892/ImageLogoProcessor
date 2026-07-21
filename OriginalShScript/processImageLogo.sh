@@ -25,9 +25,14 @@ if [ "$total" -eq 0 ]; then
 fi
 
 # --- PARALLELISM SETUP ---
-# Find number of CPU cores using sysctl, but cap the work at 8 jobs maximum
-jobs=$(sysctl -n hw.ncpu)
-jobs=$(( jobs > 10 ? 10 : jobs ))
+# Get total number of CPU cores
+total_cores=$(sysctl -n hw.ncpu)
+
+# Calculate 75% of the cores (Integer math: 3/4 of total)
+jobs=$(( (total_cores * 3) / 4 ))
+
+# Ensure at least 1 job is run (in case of very low core counts)
+if [ "$jobs" -lt 1 ]; then jobs=1; fi
 
 # Create a temporary file to track progress across different parallel processes
 progress_file=$(mktemp)
