@@ -25,14 +25,10 @@ if [ "$total" -eq 0 ]; then
 fi
 
 # --- PARALLELISM SETUP ---
-# Get total number of CPU cores
-total_cores=$(sysctl -n hw.ncpu)
-
-# Calculate 75% of the cores (Integer math: 3/4 of total)
-jobs=$(( (total_cores * 3) / 4 ))
-
-# Ensure at least 1 job is run (in case of very low core counts)
-if [ "$jobs" -lt 1 ]; then jobs=1; fi
+# Find number of CPU cores using sysctl, but cap the work at the 75% of the maxium core capacity
+jobs=$(sysctl -n hw.ncpu)
+jobs=$(( jobs * 75 / 100 ))
+jobs=$(( jobs < 1 ? 1 : jobs ))
 
 # Create a temporary file to track progress across different parallel processes
 progress_file=$(mktemp)
@@ -81,7 +77,7 @@ export -f process_one
 export total progress_file
 
 # --- EXECUTION ENGINE (The Pipeline) ---
-i=0
+i=313
 for file in "${files[@]}"; do
     # We use a 'null separator' (\0) to handle filenames that have spaces safely
     printf '%s\0%s\0' "$i" "$file"
@@ -89,5 +85,5 @@ for file in "${files[@]}"; do
 done | xargs -0 -n 2 -P "$jobs" bash -c 'process_one "$@"' _
 
 # --- CLEANUP ---
-printf "\nDone. Processed %d files using %d parallel jobs.\n" "$total" "$jobs"
+printf "\n\n\nDone. Processed %d files using %d parallel jobs.\n\n" "$total" "$jobs"
 rm -f "$progress_file" # Remove the temporary counter file
