@@ -2,23 +2,24 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include <format>
+#include <fstream>
 #include <future>
+#include <format>
 #include <iostream>
 #include <mutex>
+#include <nlohmann/json.hpp>
+#include <ranges>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
-#include <fstream>
-
-#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -40,7 +41,7 @@ struct ProcessingConfig {
     int margin_x{10};
     int margin_y{10};
     std::string gravity{"southeast"};
-    unsigned int max_parallel_jobs{10};
+    unsigned int cpu_usage_percent{75};
 };
 
 struct ToolsConfig {
@@ -74,14 +75,22 @@ void validate_absolute(const fs::path& path, const std::string& field_name) {
 }
 
 std::string quote(const fs::path& value) {
-    return std::format("\"{}\"", value.string());
+    std::string result = "\"";
+    for (const char c : value.string()) {
+        if (c == '"') result += '\\';
+        result += c;
+    }
+    result += '"';
+    return result;
+}
+
+std::string quote(const std::string& value) {
+    return quote(fs::path(value));
 }
 
 json read_json_file(const fs::path& path) {
     std::ifstream in(path);
-    if (!in) {
-        throw std::runtime_error("Unable to open configuration file: " + path.string());
-    }
+    if (!in) throw std::runtime_error("Unable to open configuration file: " + path.string());
     json j;
     in >> j;
     return j;
@@ -89,22 +98,28 @@ json read_json_file(const fs::path& path) {
 
 AppConfig load_config(const fs::path& config_path) {
     const auto j = read_json_file(config_path);
-
     AppConfig cfg;
-    cfg.logo_path = j.at("logo_path").get<std::string>();
-    cfg.input.directory = j.at("input").at("directory").get<std::string>();
+
+    cfg.logo_path = j.at("logo_path").get<fs::path>();
+    cfg.input.directory = j.at("input").at("directory").get<fs::path>();
     cfg.input.extensions = j.at("input").at("extensions").get<std::vector<std::string>>();
-    cfg.output.directory = j.at("output").at("directory").get<std::string>();
+    cfg.output.directory = j.at("output").at("directory").get<fs::path>();
     cfg.output.base_name = j.at("output").at("base_name").get<std::string>();
     cfg.output.start_index = j.at("output").at("start_index").get<int>();
     cfg.output.extension = j.at("output").at("extension").get<std::string>();
-    cfg.processing.logo_diagonal_divisor = j.at("processing").value("logo_diagonal_divisor", 12.0);
+
+    cfg.processing.logo_diagonal_divisor =
+        j.at("processing").value("logo_diagonal_divisor", 12.0);
     cfg.processing.margin_x = j.at("processing").value("margin_x", 10);
     cfg.processing.margin_y = j.at("processing").value("margin_y", 10);
-    cfg.processing.gravity = j.at("processing").value("gravity", std::string("southeast"));
-    cfg.processing.max_parallel_jobs = j.at("processing").value("max_parallel_jobs", 10u);
+    cfg.processing.gravity =
+        j.at("processing").value("gravity", std::string("southeast"));
+    cfg.processing.cpu_usage_percent =
+        j.at("processing").value("cpu_usage_percent", 75u);
+
     if (j.contains("tools")) {
-        cfg.tools.magick_command = j.at("tools").value("magick_command", std::string("magick"));
+        cfg.tools.magick_command =
+            j.at("tools").value("magick_command", std::string("magick"));
     }
 
     validate_absolute(cfg.logo_path, "logo_path");
@@ -114,20 +129,24 @@ AppConfig load_config(const fs::path& config_path) {
     if (cfg.input.extensions.empty()) {
         throw std::runtime_error("input.extensions cannot be empty");
     }
+
     for (auto& ext : cfg.input.extensions) {
         ext = to_lower(ext);
         if (ext.empty() || ext.front() != '.') {
             throw std::runtime_error("Each extension must start with '.', for example: .jpeg");
         }
     }
+
     if (cfg.output.extension.empty() || cfg.output.extension.front() != '.') {
         throw std::runtime_error("output.extension must start with '.', for example: .jpeg");
     }
+
     if (cfg.processing.logo_diagonal_divisor <= 0.0) {
         throw std::runtime_error("processing.logo_diagonal_divisor must be > 0");
     }
-    if (cfg.processing.max_parallel_jobs == 0) {
-        cfg.processing.max_parallel_jobs = 1;
+
+    if (cfg.processing.cpu_usage_percent == 0 || cfg.processing.cpu_usage_percent > 100) {
+        throw std::runtime_error("processing.cpu_usage_percent must be between 1 and 100");
     }
 
     return cfg;
@@ -139,24 +158,18 @@ std::string run_command_capture(const std::string& command) {
 #else
     FILE* pipe = popen(command.c_str(), "r");
 #endif
-    if (!pipe) {
-        throw std::runtime_error("Unable to execute command: " + command);
-    }
+    if (!pipe) throw std::runtime_error("Unable to execute command: " + command);
 
     std::string result;
     char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        result += buffer;
-    }
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) result += buffer;
 
 #if defined(_WIN32)
     const int rc = _pclose(pipe);
 #else
     const int rc = pclose(pipe);
 #endif
-    if (rc != 0) {
-        throw std::runtime_error("Command failed: " + command);
-    }
+    if (rc != 0) throw std::runtime_error("Command failed: " + command);
     return result;
 }
 
@@ -165,12 +178,16 @@ int run_command(const std::string& command) {
 }
 
 ImageInfo get_image_info(const AppConfig& cfg, const fs::path& file) {
-    const auto cmd = std::format("{} identify -format \"%w %h\" {}", cfg.tools.magick_command, quote(file));
-    const auto output = run_command_capture(cmd);
-    std::istringstream iss(output);
+    const auto command = std::format(
+        "{} identify -format \"%w %h\" {}",
+        quote(cfg.tools.magick_command), quote(file));
+
+    const auto output = run_command_capture(command);
+    std::istringstream stream(output);
     ImageInfo info;
-    iss >> info.width >> info.height;
-    if (!iss || info.width == 0 || info.height == 0) {
+    stream >> info.width >> info.height;
+
+    if (!stream || info.width == 0 || info.height == 0) {
         throw std::runtime_error("Invalid dimensions for file: " + file.string());
     }
     return info;
@@ -178,14 +195,12 @@ ImageInfo get_image_info(const AppConfig& cfg, const fs::path& file) {
 
 std::vector<fs::path> collect_files(const AppConfig& cfg) {
     std::vector<fs::path> files;
-    std::set<std::string> exts(cfg.input.extensions.begin(), cfg.input.extensions.end());
+    const std::set<std::string> extensions(
+        cfg.input.extensions.begin(), cfg.input.extensions.end());
 
     for (const auto& entry : fs::directory_iterator(cfg.input.directory)) {
-        if (!entry.is_regular_file()) {
-            continue;
-        }
-        const auto ext = to_lower(entry.path().extension().string());
-        if (exts.contains(ext)) {
+        if (!entry.is_regular_file()) continue;
+        if (extensions.contains(to_lower(entry.path().extension().string()))) {
             files.push_back(entry.path());
         }
     }
@@ -215,17 +230,22 @@ void process_one(const AppConfig& cfg,
                  int total,
                  std::mutex& io_mutex) {
     const auto info = get_image_info(cfg, input_file);
-    const auto diagonal = std::sqrt(static_cast<double>(info.width) * static_cast<double>(info.width) +
-                                    static_cast<double>(info.height) * static_cast<double>(info.height));
-    const auto logo_size = std::max(1, static_cast<int>(std::llround(diagonal / cfg.processing.logo_diagonal_divisor)));
+    const auto diagonal = std::sqrt(
+        static_cast<double>(info.width) * static_cast<double>(info.width) +
+        static_cast<double>(info.height) * static_cast<double>(info.height));
+    const auto logo_size = std::max(
+        1, static_cast<int>(std::llround(diagonal / cfg.processing.logo_diagonal_divisor)));
 
-    const auto output_name = std::format("{}{:04d}{}", cfg.output.base_name, index, cfg.output.extension);
+    const auto output_name = std::format(
+        "{}{:04d}{}", cfg.output.base_name, index, cfg.output.extension);
     const auto output_path = cfg.output.directory / output_name;
 
-    const auto cmd = std::format(
-        R"({} -limit thread 1 {} \
-        \( {} -resize {}x \) -gravity {} -geometry +{}+{} -composite {})",
-        cfg.tools.magick_command,
+    const auto command = std::format(
+        "{} -limit thread 1 {} "
+        "\\( {} -resize {}x -alpha set "
+        "-channel Alpha -evaluate multiply 0.30 +channel \\) "
+        "-gravity {} -geometry +{}+{} -composite {}",
+        quote(cfg.tools.magick_command),
         quote(input_file),
         quote(cfg.logo_path),
         logo_size,
@@ -234,8 +254,7 @@ void process_one(const AppConfig& cfg,
         cfg.processing.margin_y,
         quote(output_path));
 
-    const int rc = run_command(cmd);
-    if (rc != 0) {
+    if (run_command(command) != 0) {
         throw std::runtime_error("Processing failed for file: " + input_file.string());
     }
 
@@ -243,20 +262,17 @@ void process_one(const AppConfig& cfg,
     std::scoped_lock lock(io_mutex);
     const int percent = processed * 100 / std::max(total, 1);
     const int bars = processed * 40 / std::max(total, 1);
-    std::cout << '\r' << '[' << std::string(static_cast<std::size_t>(bars), '#')
-              << std::string(static_cast<std::size_t>(40 - bars), ' ')
+    std::cout << '\r' << '[' << std::string(bars, '#')
+              << std::string(40 - bars, ' ')
               << "] " << percent << "% processed: " << processed
               << " left: " << (total - processed) << std::flush;
 }
 
 fs::path parse_config_path(int argc, char* argv[]) {
-    if (argc == 2) {
-        return fs::path(argv[1]);
-    }
-    if (argc == 3 && std::string_view(argv[1]) == "--config") {
-        return fs::path(argv[2]);
-    }
-    throw std::runtime_error("Usage: logo_processor /path/config.json or logo_processor --config /path/config.json");
+    if (argc == 2) return fs::path(argv[1]);
+    if (argc == 3 && std::string_view(argv[1]) == "--config") return fs::path(argv[2]);
+    throw std::runtime_error(
+        "Usage: logo_processor /path/config.json or logo_processor --config /path/config.json");
 }
 
 int main(int argc, char* argv[]) {
@@ -272,43 +288,48 @@ int main(int argc, char* argv[]) {
         }
 
         fs::create_directories(cfg.output.directory);
-
         const auto files = collect_files(cfg);
         const int total = static_cast<int>(files.size());
+
         if (total == 0) {
             std::cout << "No files found for the configured extensions.\n";
             return 0;
         }
 
-        const auto hw = std::max(1u, std::thread::hardware_concurrency());
-        const auto jobs = std::max(1u, std::min({cfg.processing.max_parallel_jobs, hw, static_cast<unsigned int>(total)}));
+        const auto hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+        const auto requested_jobs = std::max(
+            1u, (hardware_threads * cfg.processing.cpu_usage_percent) / 100u);
+        const auto jobs = std::min(requested_jobs, static_cast<unsigned int>(total));
 
-        std::cout << "Found " << total << " files. Hardware threads available: " << hw
-                  << ", configured maximum jobs: " << cfg.processing.max_parallel_jobs
+        std::cout << "Found " << total
+                  << " files. Hardware threads available: " << hardware_threads
+                  << ", CPU usage target: " << cfg.processing.cpu_usage_percent << "%"
                   << ", jobs used: " << jobs << ".\n";
 
         std::atomic<int> done_count{0};
         std::mutex io_mutex;
         std::vector<std::future<void>> futures;
         futures.reserve(jobs);
-
         std::size_t cursor = 0;
+
         while (cursor < files.size() || !futures.empty()) {
             while (cursor < files.size() && futures.size() < jobs) {
-                const int idx = cfg.output.start_index + static_cast<int>(cursor);
-                futures.emplace_back(std::async(std::launch::async,
-                                                process_one,
-                                                std::cref(cfg),
-                                                idx,
-                                                files[cursor],
-                                                std::ref(done_count),
-                                                total,
-                                                std::ref(io_mutex)));
+                const int index = cfg.output.start_index + static_cast<int>(cursor);
+                futures.emplace_back(std::async(
+                    std::launch::async,
+                    process_one,
+                    std::cref(cfg),
+                    index,
+                    files[cursor],
+                    std::ref(done_count),
+                    total,
+                    std::ref(io_mutex)));
                 ++cursor;
             }
 
             for (auto it = futures.begin(); it != futures.end();) {
-                if (it->wait_for(std::chrono::milliseconds(10)) == std::future_status::ready) {
+                if (it->wait_for(std::chrono::milliseconds(10)) ==
+                    std::future_status::ready) {
                     it->get();
                     it = futures.erase(it);
                 } else {
